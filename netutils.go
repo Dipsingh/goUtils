@@ -64,13 +64,13 @@ func WriteToTCPrw(sock *net.TCPConn, writeChan chan []byte,
 }
 
 //reconnecting to remote host for both read and write purpose
-func ReconnectTCPRW(ladr, radr net.TCPAddr, msgBuf []byte, writeChan chan []byte,
+func ReconnectTCPRW(ladr, radr *net.TCPAddr, msgBuf []byte, writeChan chan []byte,
 	readChan chan []byte, feedbackChanToSocket, feedbackChanFromSocket chan int,
 	init_msg []byte) {
 	loop := 1
 	for loop == 1 {
 		time.Sleep(time.Duration(20+rand.Intn(15)) * time.Second)
-		sock, err := net.DialTCP("tcp", &ladr, &radr)
+		sock, err := net.DialTCP("tcp", ladr, radr)
 		if err != nil {
 			continue
 		}
@@ -87,7 +87,7 @@ func ReconnectTCPRW(ladr, radr net.TCPAddr, msgBuf []byte, writeChan chan []byte
 	}
 }
 
-func AutoRecoonectedTCP(ladr, radr net.TCPAddr, msgBuf, initMsg []byte,
+func AutoRecoonectedTCP(ladr, radr *net.TCPAddr, msgBuf, initMsg []byte,
 	writeChan, readChan chan []byte) {
 	feedbackChanFromSocket := make(chan int)
 	feedbackChanToSocket := make(chan int)
