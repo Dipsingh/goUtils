@@ -88,7 +88,7 @@ func ReconnectTCPRW(ladr, radr *net.TCPAddr, msgBuf []byte, writeChan chan []byt
 }
 
 func AutoRecoonectedTCP(ladr, radr *net.TCPAddr, msgBuf, initMsg []byte,
-	writeChan, readChan chan []byte) {
+	writeChan, readChan chan []byte, flushChan chan int) {
 	feedbackChanFromSocket := make(chan int)
 	feedbackChanToSocket := make(chan int)
 	go ReconnectTCPRW(ladr, radr, msgBuf, writeChan, readChan, feedbackChanToSocket,
@@ -97,6 +97,7 @@ func AutoRecoonectedTCP(ladr, radr *net.TCPAddr, msgBuf, initMsg []byte,
 		select {
 		case feedbackFromSocket := <-feedbackChanFromSocket:
 			feedbackChanToSocket <- feedbackFromSocket
+			flushChan <- 1
 			go ReconnectTCPRW(ladr, radr, msgBuf, writeChan,
 				readChan, feedbackChanToSocket,
 				feedbackChanFromSocket, initMsg)
