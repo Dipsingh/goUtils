@@ -69,9 +69,9 @@ func ReconnectTCPRW(ladr, radr *net.TCPAddr, msgBuf []byte, writeChan chan []byt
 	init_msg []byte) {
 	loop := 1
 	for loop == 1 {
-		time.Sleep(time.Duration(20+rand.Intn(15)) * time.Second)
 		sock, err := net.DialTCP("tcp", ladr, radr)
 		if err != nil {
+			time.Sleep(time.Duration(20+rand.Intn(15)) * time.Second)
 			continue
 		}
 		//testing health of the new socket. GO sometimes doesnt rise the error when
@@ -79,6 +79,7 @@ func ReconnectTCPRW(ladr, radr *net.TCPAddr, msgBuf []byte, writeChan chan []byt
 		_, err = sock.Write(init_msg)
 		if err != nil {
 			sock.Close()
+			time.Sleep(time.Duration(20+rand.Intn(15)) * time.Second)
 			continue
 		}
 		loop = 0
