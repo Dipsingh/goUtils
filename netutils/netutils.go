@@ -21,7 +21,9 @@ func ReadFromTCP(sock *net.TCPConn, msgBuf []byte, readChan chan []byte,
 			loop = 0
 			continue
 		}
-		readChan <- msgBuf[:bytes]
+		b := make([]byte, 0)
+		b = append(b, msgBuf[:bytes]...)
+		readChan <- b
 	}
 }
 
@@ -178,7 +180,9 @@ func CMReadFromTCP(sock *net.TCPConn, readChan chan ConnectionMsg,
 			loop = 0
 			continue
 		}
-		msg.Data = msgBuf[:bytes]
+		b := make([]byte, 0)
+		b = append(b, msgBuf[:bytes]...)
+		msg.Data = b
 		readChan <- msg
 	}
 }
