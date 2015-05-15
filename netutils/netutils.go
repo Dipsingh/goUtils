@@ -11,7 +11,7 @@ import (
 )
 
 //Receive msg from tcp socket and send it as a []byte to readChan
-func ReadFromTCP(sock *net.TCPConn, msgBuf []byte, readChan chan []byte,
+func ReadFromTCP2(sock *net.TCPConn, msgBuf []byte, readChan chan []byte,
 	feedbackChanFromSocket chan int) {
 	loop := 1
 	for loop == 1 {
@@ -27,9 +27,23 @@ func ReadFromTCP(sock *net.TCPConn, msgBuf []byte, readChan chan []byte,
 	}
 }
 
+//Receive msg from tcp socket and send it as a []byte to readChan
+func ReadFromTCP(sock *net.TCPConn, msgBuf []byte, readChan chan []byte,
+	feedbackChanFromSocket chan int) {
+	feedbackToSocket := make(chan bool)
+	feedbackFromSocket := make(chan bool)
+	reuseBufferChan := make(chan []byte, 1)
+	go readFromTCP(sock, readChan, feedbackFromSocket,
+		feedbackToSocket, reuseBufferChan)
+	go func() {
+		<-feedbackFromSocket
+		feedbackChanFromSocket <- 1
+	}()
+}
+
 /*simple write to TCP, for oneway connections only (no communitcation w/ "read" part of the socket
 in terms of error propogation)*/
-func WriteToTCPw(sock *net.TCPConn, writeChan chan []byte,
+func WriteToTCPw2(sock *net.TCPConn, writeChan chan []byte,
 	feedbackChan chan int) {
 	loop := 1
 	for loop == 1 {
@@ -46,8 +60,21 @@ func WriteToTCPw(sock *net.TCPConn, writeChan chan []byte,
 	}
 }
 
+/*simple write to TCP, for oneway connections only (no communitcation w/ "read" part of the socket
+in terms of error propogation)*/
+func WriteToTCPw(sock *net.TCPConn, writeChan chan []byte,
+	feedbackChan chan int) {
+	feedbackToSocket := make(chan bool)
+	feedbackFromSocket := make(chan bool)
+	go writeToTCP(sock, writeChan, feedbackFromSocket, feedbackToSocket)
+	go func() {
+		<-feedbackFromSocket
+		feedbackChan <- 1
+	}()
+}
+
 //simple write to tcp w/ erorr propagation to/from "read" part of the socket
-func WriteToTCPrw(sock *net.TCPConn, writeChan chan []byte,
+func WriteToTCPrw2(sock *net.TCPConn, writeChan chan []byte,
 	feedbackChanFromSocket, feedbackChanToSocket chan int) {
 	loop := 1
 	for loop == 1 {
@@ -65,6 +92,85 @@ func WriteToTCPrw(sock *net.TCPConn, writeChan chan []byte,
 			}
 		case <-feedbackChanToSocket:
 			loop = 0
+		}
+	}
+}
+
+//simple write to tcp w/ erorr propagation to/from "read" part of the socket
+func WriteToTCPrw(sock *net.TCPConn, writeChan chan []byte,
+	feedbackChanFromSocket, feedbackChanToSocket chan int) {
+	feedbackToSocket := make(chan bool)
+	feedbackFromSocket := make(chan bool)
+	go writeToTCP(sock, writeChan, feedbackFromSocket, feedbackToSocket)
+	go func() {
+		select {
+		case <-feedbackFromSocket:
+			feedbackChanFromSocket <- 1
+		case <-feedbackChanToSocket:
+			feedbackToSocket <- true
+
+		}
+	}()
+
+}
+
+func makeBuffer(reuseBufferChan chan []byte) []byte {
+	select {
+	case buf := <-reuseBufferChan:
+		return buf
+	default:
+		return make([]byte, 10000)
+	}
+}
+
+//Receive msg from tcp socket and send it as a []byte to readChan,with buffer reuse
+func readFromTCP(sock *net.TCPConn, readChan chan []byte,
+	feedbackFromSocket, feedbackToSocket chan bool,
+	reuseBufferChan chan []byte) {
+	loop := 1
+	var buf []byte
+	for loop == 1 {
+		buf = makeBuffer(reuseBufferChan)
+		bytes, err := sock.Read(buf)
+		if err != nil {
+			select {
+			case feedbackFromSocket <- true:
+				loop = 0
+				continue
+			case <-feedbackToSocket:
+				loop = 0
+				continue
+			}
+		}
+		select {
+		case readChan <- buf[:bytes]:
+		case <-feedbackToSocket:
+			loop = 0
+			continue
+
+		}
+	}
+}
+
+//TCP's write routine, with feedback's chans
+func writeToTCP(sock *net.TCPConn, writeChan chan []byte,
+	feedbackFromSocket, feedbackToSocket chan bool) {
+	loop := 1
+	for loop == 1 {
+		select {
+		case msg := <-writeChan:
+			_, err := sock.Write(msg)
+			if err != nil {
+				select {
+				case feedbackFromSocket <- true:
+				case <-feedbackToSocket:
+				}
+				loop = 0
+				continue
+			}
+		case <-feedbackToSocket:
+			loop = 0
+			continue
 		}
 	}
 }
@@ -94,6 +200,24 @@ func ReconnectTCPRW(ladr, radr *net.TCPAddr, msgBuf []byte, writeChan chan []byt
 	}
 }
 
+func ReconnectTCPRWReuse(ladr, radr *net.TCPAddr,
+	readChan, writeChan, reuseBufferChan chan []byte,
+	readFeedbackFrom, readFeedbackTo chan bool,
+	writeFeedbackFrom, writeFeedbackTo chan bool) {
+	loop := 1
+	for loop == 1 {
+		sock, err := net.DialTCP("tcp", ladr, radr)
+		if err != nil {
+			time.Sleep(time.Duration(20+rand.Intn(15)) * time.Second)
+			continue
+		}
+		loop = 0
+		go readFromTCP(sock, readChan, readFeedbackFrom, readFeedbackTo,
+			reuseBufferChan)
+		go writeToTCP(sock, writeChan, writeFeedbackFrom, writeFeedbackTo)
+	}
+}
+
 func AutoRecoonectedTCP(ladr, radr *net.TCPAddr, msgBuf, initMsg []byte,
 	writeChan, readChan chan []byte, flushChan chan int) {
 	feedbackChanFromSocket := make(chan int)
@@ -110,6 +234,32 @@ func AutoRecoonectedTCP(ladr, radr *net.TCPAddr, msgBuf, initMsg []byte,
 				feedbackChanFromSocket, initMsg)
 
 		}
+	}
+
+}
+
+func AutoRecoonectedTCPReuse(ladr, radr *net.TCPAddr,
+	readChan, writeChan chan []byte,
+	reuseChan chan []byte,
+	flushChan chan bool) {
+	readFeedbackFrom := make(chan bool)
+	readFeedbackTo := make(chan bool)
+	writeFeedbackFrom := make(chan bool)
+	writeFeedbackTo := make(chan bool)
+	go ReconnectTCPRWReuse(ladr, radr, readChan, writeChan, reuseChan,
+		readFeedbackFrom, readFeedbackTo,
+		writeFeedbackFrom, writeFeedbackTo)
+	for {
+		select {
+		case <-readFeedbackFrom:
+			writeFeedbackTo <- true
+		case <-writeFeedbackFrom:
+			readFeedbackTo <- true
+		}
+		flushChan <- true
+		go ReconnectTCPRWReuse(ladr, radr, readChan, writeChan, reuseChan,
+			readFeedbackFrom, readFeedbackTo,
+			writeFeedbackFrom, writeFeedbackTo)
 	}
 
 }
